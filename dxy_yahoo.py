@@ -8,8 +8,16 @@ import ta
 import numpy as np
 from ta import add_all_ta_features
 from ta.utils import dropna
-import seaborn as sns
+import scipy.stats as stats
 import matplotlib.pyplot as plt
+import seaborn as sns
+import missingno as msno
+
+
+pd.set_option("display.max_columns",100)
+plt.rcParams["figure.figsize"]=(24,7)
+import warnings
+warnings.filterwarnings("ignore")
 
 def pull_data():
     dxy_df = yf.download("DX-Y.NYB", start = "2009-01-03")
@@ -36,8 +44,8 @@ def pull_data():
     price = price.drop( "Date", axis = 1)
     price.index = pd.to_datetime(price.index)
 
-    # relevant url for below data https://charts.coinmetrics.io/network-data/
     others = pd.read_excel("Coin_Metrics_Network_Data_2022-05-24T15-38.xlsx")
+    
     others.rename(columns={"Time":"Date"},inplace=True)
     others.set_index(others.Date,inplace=True)
     others = others.drop( "Date", axis = 1)
@@ -55,15 +63,13 @@ def pull_data():
     last_data = last_data.drop( "Date", axis = 1)
     return last_data
 
-pull_data()
 
 
 def applytechnicals(df):
 
 
     df.fillna(method="ffill", inplace=True)
-    
-    
+      
     df["Sma21_manuel"]=df.Close.rolling(21).mean()
     df["Sma50_manuel"]=df.Close.rolling(50).mean()
     df["Sma200_manuel"]=df.Close.rolling(200).mean()
@@ -91,14 +97,9 @@ def applytechnicals(df):
         else:
             OBV.append(OBV[-1])
     df["OBV"] = OBV
-    df["OBV_EMA"] = df["OBV"].ewm(span=20, adjust=False).mean() """
-
-    
-    
+    df["OBV_EMA"] = df["OBV"].ewm(span=20, adjust=False).mean() """  
     df.dropna(inplace = True)
     
-    #data[column].ewm(span=period, adjust=False).mean()
-
 
 def add_ta_features():
     df = pull_data()
@@ -110,3 +111,80 @@ def add_ta_features():
 
 
 df = add_ta_features()
+
+dropped_columns = ["BTC / BTC Denominated Price","Adj Close","BTC / USD Denominated Closing Price","others_cr","BTC / Miner Supply (USD)", 
+                    "BTC / Free Float Market Cap (USD)","Open", "High","Low"]
+df.drop(columns=dropped_columns, inplace=True)
+
+
+train_size = int(len(df) * 0.6)
+test_size = int(len(df) - train_size)
+train = df.iloc[0:train_size, :]
+test = df.iloc[train_size:len(df), :]
+print("train size: {}, test size: {}". format(len(train), len(test)))
+
+
+y = df["Close"]
+X = df.drop(columns="Close", axis=1)
+
+X_train = train.drop(columns="Close")
+y_train = train["Close"]
+X_test = test.drop(columns="Close")
+y_test = test["Close"]
+
+
+print("X_train: ", X_train.shape)
+print("X_test: ", X_test.shape)
+print("y_train: ", y_train.shape)
+print("y_test: ", y_test.shape)
+
+from sklearn.linear_model import LinearRegression
+lin_model = LinearRegression()
+lin_model.fit(X_train, y_train)
+
+y_pred = lin_model.predict(X_test)
+y_train_pred = lin_model.predict(X_train)
+
+my_dict = {"Actual": y_test, "pred": y_pred, "residual": y_test - y_pred }
+compared = pd.DataFrame(my_dict)
+print(compared)
+
+
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+def eval_metric(actual,pred):
+    mae = mean_absolute_error(actual,pred)
+    mse = mean_squared_error(actual,pred)
+    rmse = np.sqrt(mean_squared_error(actual,pred))
+    R2_score = r2_score(actual,pred)
+    print("Model Testing Performance: ")
+    print("---------------------------")
+    print(f"R2_score \t: {R2_score}")
+    print(f"MAE \t\t: {mae}")
+    print(f"MSE \t\t: {mse}")
+    print(f"RMSE \t\t: {rmse}")
+
+
+eval_metric(y_test, y_pred)
+eval_metric(y_train,y_train_pred)
+
+import pickle
+# save the model to disk
+filename = 'LinReg_model.sav'
+pickle.dump(lin_model, open(filename, 'wb'))
+
+""" # load the model from disk
+loaded_model = pickle.load(open(filename, 'rb'))
+result = loaded_model.score(X_test,y_test)
+print(result) """
+
+
+
+""" import joblib
+# save the model to disk
+filename = 'LinReg_model.sav'
+joblib.dump(lin_model, filename)
+ 
+# load the model from disk
+loaded_model = joblib.load(filename)
+result = loaded_model.score(X_test, y_test)
+print(result) """
